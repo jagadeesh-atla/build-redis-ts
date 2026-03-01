@@ -1,0 +1,3 @@
+[submodule "resp-protocol"]
+	path = resp-protocol
+	url = git@github.com:jagadeesh-atla/resp-protocol.git
