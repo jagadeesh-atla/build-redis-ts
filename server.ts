@@ -2,11 +2,13 @@ import { createServer, Socket } from "net";
 import { RESP, type Resp } from "./resp-protocol/parser";
 import { decode, encode } from "./resp-protocol/codec";
 import { Store } from "./store";
+import { AOF } from "./aof";
 
 const PORT = 1234;
 const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB
 
 const store = new Store();
+const aof = new AOF();
 
 interface ClientState {
     socket: Socket;
@@ -45,12 +47,15 @@ server.on("error", (err) => {
     process.exit(1);
 });
 
+aof.restore((args) => {
+    executeCommand(args, null, true);
+});
+
 server.listen(PORT, () => {
     console.log(`[server] listening on port ${PORT}`);
 });
 
 function handleData(client: ClientState, chunk: Buffer) {
-    console.log(chunk);
     client.buffer = Buffer.concat([client.buffer, chunk]);
 
     if (client.buffer.length > MAX_BUFFER_SIZE) {
@@ -67,17 +72,25 @@ function processMessage(client: ClientState) {
     client.isProcessing = true;
 
     while (client.buffer.length > 0) {
-        const strBuffer = client.buffer.toString();
+        const byteStrBuffer = client.buffer.toString("latin1");
 
-        const result = RESP.run(strBuffer);
+        const result = RESP.run(byteStrBuffer);
         if (result.isError) break;
 
         const commandResp: Resp = result.result;
-        const parsedLength = Buffer.byteLength(strBuffer.slice(0, result.index));
+        const parsedLength = Buffer.byteLength(byteStrBuffer.slice(0, result.index), "latin1");
         client.buffer = client.buffer.subarray(parsedLength);
 
         const args = decode(commandResp);
         const response = executeCommand(args, client.socket);
+
+        if (!(response instanceof Error)) {
+            const commandName = String(args[0]).toUpperCase();
+            const mutativeCommands = new Set(["SET", "DEL", "INCR", "DECR", "LPUSH", "RPUSH", "LPOP", "RPOP", "SADD", "SREM"]);
+            if (mutativeCommands.has(commandName)) {
+                aof.append(args);
+            }
+        }
 
         if (Array.isArray(response) && response.length > 0 && Array.isArray(response[0])) {
             for (const res of response) {
@@ -154,37 +167,6 @@ function executeCommand(args: any[], clientSocket: Socket | null, isRestore = fa
         }
     } catch (e: any) {
         return new Error(e.message);
-    }
-}
-
-
-function enqueueResponse(client: ClientState, response: Buffer) {
-    client.responseQueue.push(response);
-    flushQueue(client);
-}
-
-function flushQueue(client: ClientState) {
-    if (client.isProcessing) return;
-    if (client.responseQueue.length === 0) return;
-
-    client.isProcessing = true;
-
-    const response = client.responseQueue.shift();
-    if (!response) {
-        client.isProcessing = false;
-        return;
-    }
-
-    const canContinue = client.socket.write(response);
-
-    if (!canContinue) {
-        client.socket.once("drain", () => {
-            client.isProcessing = false;
-            flushQueue(client);
-        });
-    } else {
-        client.isProcessing = false;
-        flushQueue(client);
     }
 }
 

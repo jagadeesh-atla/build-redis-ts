@@ -2,6 +2,7 @@ import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { decode, encodeCommand } from "./resp-protocol/codec";
 import { RESP, type Resp } from "./resp-protocol/parser";
 import type { Subprocess } from "bun";
+import { unlinkSync, existsSync } from "fs";
 
 describe("Redis Basic Commands", () => {
     let serverProcess: Subprocess;
@@ -21,6 +22,9 @@ describe("Redis Basic Commands", () => {
     };
 
     beforeAll(async () => {
+        if (existsSync("appendonly.aof")) {
+            unlinkSync("appendonly.aof");
+        }
         console.log("[test] spinning the server...");
         serverProcess = Bun.spawn(["bun", "run", "server.ts"]);
         await Bun.sleep(500);
@@ -46,6 +50,9 @@ describe("Redis Basic Commands", () => {
             socket.end();
         }
         serverProcess.kill();
+        if (existsSync("appendonly.aof")) {
+            unlinkSync("appendonly.aof");
+        }
     });
 
     test("PING command", async () => {

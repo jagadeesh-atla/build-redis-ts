@@ -16,10 +16,10 @@ Zero dependencies.
   * Strings: set, get, del, exists, incr/decr
   * Lists: lpush, rpush, lpop, rpop
   * sets: sadd, srem, smembers
+- Persistence (AOF)
 
 ## TODO
 
-- Persistence (AOF)
 - TTL
   * EXPIRE
   * TTL
